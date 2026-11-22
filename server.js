@@ -29,8 +29,7 @@ console.log("Ghostscript executable:", GS_BIN);
 // =====================================
 
 const defaultOrigins = [
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
+  "https://akwebp.web.app"
   "http://localhost:3000",
   "http://127.0.0.1:3000"
 ];
