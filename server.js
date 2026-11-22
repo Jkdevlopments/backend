@@ -1,6 +1,4 @@
 
-require("dotenv").config();
-
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
@@ -11,27 +9,27 @@ const pdfRoutes = require("./routes/pdfRoutes");
 const app = express();
 
 // =====================================
-// CONFIGURATION
+// RENDER CONFIGURATION
 // =====================================
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 10000;
 const HOST = "0.0.0.0";
 
-// Ghostscript executable
-const GS_BIN = process.env.GS_BIN || (
-  process.platform === "win32" ? "gswin64c" : "gs"
-);
-
-console.log("Ghostscript executable:", GS_BIN);
+console.log("Environment:", process.env.NODE_ENV || "development");
 
 // =====================================
-// CORS
+// CORS CONFIGURATION
 // =====================================
 
 const defaultOrigins = [
-  "https://akwebp.web.app",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
   "http://localhost:3000",
-  "http://127.0.0.1:3000"
+  "http://127.0.0.1:3000",
+
+  // Firebase Hosting
+  "https://akwebp.web.app",
+  "https://akwebp.firebaseapp.com"
 ];
 
 const envOrigins = process.env.CLIENT_ORIGINS
@@ -44,43 +42,41 @@ const allowedOrigins = [
   ...new Set([...defaultOrigins, ...envOrigins])
 ];
 
-const exposedHeaders = [
-  // Common
-  "Content-Disposition",
-
-  // Image headers
-  "X-Original-Size",
-  "X-Processed-Size",
-  "X-Compression-Percent",
-  "X-Output-Width",
-  "X-Output-Height",
-  "X-Output-Format",
-
-  // PDF headers
-  "X-Saved-Size",
-  "X-Size-Change-Percent",
-  "X-PDF-Pages",
-  "X-Compression-Applied",
-  "X-PDF-DPI",
-  "X-PDF-JPEG-QUALITY"
-];
-
 app.use(cors({
   origin(origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
 
+    console.error("Blocked CORS origin:", origin);
     return callback(new Error("Not allowed by CORS"));
   },
 
-  methods: ["GET", "POST", "OPTIONS"],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
 
   allowedHeaders: [
-    "Content-Type"
+    "Content-Type",
+    "Authorization"
   ],
 
-  exposedHeaders
+  exposedHeaders: [
+    "Content-Disposition",
+
+    "X-Original-Size",
+    "X-Processed-Size",
+    "X-Saved-Size",
+    "X-Compression-Percent",
+    "X-Size-Change-Percent",
+    "X-Compression-Applied",
+
+    "X-Output-Width",
+    "X-Output-Height",
+    "X-Output-Format",
+
+    "X-PDF-Pages",
+    "X-PDF-DPI",
+    "X-PDF-JPEG-QUALITY"
+  ]
 }));
 
 app.use(express.json({
@@ -93,7 +89,7 @@ app.use(express.json({
 
 app.use((req, res, next) => {
   console.log(
-    `[${new Date().toLocaleTimeString()}]`,
+    `[${new Date().toISOString()}]`,
     req.method,
     req.originalUrl
   );
@@ -168,10 +164,7 @@ async function processImage(file, body) {
     throw new Error("Invalid image file.");
   }
 
-  // =====================================
   // RESIZE
-  // =====================================
-
   if (action === "resize") {
     const width = Number(body.width);
     const height = Number(body.height);
@@ -192,10 +185,7 @@ async function processImage(file, body) {
     });
   }
 
-  // =====================================
   // ROTATE
-  // =====================================
-
   if (action === "rotate") {
     const angle = Number(body.rotation ?? 0);
 
@@ -206,10 +196,7 @@ async function processImage(file, body) {
     image = image.rotate(angle);
   }
 
-  // =====================================
   // ENHANCE
-  // =====================================
-
   if (action === "enhance") {
     const strength = quality / 100;
 
@@ -221,10 +208,7 @@ async function processImage(file, body) {
       .sharpen();
   }
 
-  // =====================================
   // OUTPUT
-  // =====================================
-
   let output;
   let contentType;
   let extension;
@@ -316,7 +300,7 @@ app.post(
   imageUpload.single("file"),
   async (req, res) => {
     try {
-      console.log("DIRECT IMAGE PREVIEW HIT");
+      console.log("IMAGE PREVIEW HIT");
 
       const result = await processImage(req.file, req.body);
 
@@ -344,7 +328,7 @@ app.post(
   imageUpload.single("file"),
   async (req, res) => {
     try {
-      console.log("DIRECT IMAGE PROCESS HIT");
+      console.log("IMAGE PROCESS HIT");
 
       const result = await processImage(req.file, req.body);
 
@@ -374,11 +358,10 @@ app.use("/api/pdf", pdfRoutes);
 // =====================================
 
 app.get("/", (req, res) => {
-  res.json({
+  res.status(200).json({
     success: true,
     message: "DocuFix Backend Running",
-
-    ghostscript: GS_BIN,
+    hosting: "Render",
 
     image: [
       "POST /api/image/preview",
@@ -397,8 +380,6 @@ app.get("/", (req, res) => {
 // =====================================
 
 app.use((req, res) => {
-  console.log("404:", req.method, req.originalUrl);
-
   res.status(404).json({
     success: false,
     message: "API endpoint not found",
@@ -412,7 +393,7 @@ app.use((req, res) => {
 // =====================================
 
 app.use((err, req, res, next) => {
-  console.error("SERVER ERROR:", err.message);
+  console.error("SERVER ERROR:", err);
 
   if (res.headersSent) {
     return next(err);
@@ -421,7 +402,7 @@ app.use((err, req, res, next) => {
   const statusCode =
     err instanceof multer.MulterError ? 400 :
     err.message === "Not allowed by CORS" ? 403 :
-    400;
+    500;
 
   res.status(statusCode).json({
     success: false,
@@ -438,11 +419,9 @@ app.listen(PORT, HOST, () => {
   console.log("       DOCUFIX BACKEND");
   console.log("--------------------------------");
 
-  console.log(`Server: http://127.0.0.1:${PORT}`);
   console.log(`Host: ${HOST}`);
   console.log(`Port: ${PORT}`);
-
-  console.log("Ghostscript:", GS_BIN);
+  console.log("Hosting: Render");
 
   console.log("Image preview: /api/image/preview");
   console.log("Image process: /api/image/process");
